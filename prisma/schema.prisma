@@ -12,6 +12,257 @@ datasource db {
   provider = "postgresql"
 }
 
-model User{
-  
+// =============================================================================
+// Yoga Pose Detection & Correction Platform — Prisma Schema
+// Version: 1.0.0  |  DB: PostgreSQL
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum SessionMode {
+  LIVE
+  UPLOAD
+}
+
+enum SessionStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ABANDONED
+}
+
+enum OAuthProvider {
+  GOOGLE
+}
+
+// =============================================================================
+// USER MANAGEMENT  (UM01 – UM05)
+// =============================================================================
+
+model User {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  passwordHash String?         @map("password_hash")     // null for OAuth-only users
+  name         String
+  avatarUrl    String?         @map("avatar_url")
+  level        ExperienceLevel @default(BEGINNER)
+  role         UserRole        @default(USER)
+  isActive     Boolean         @default(true)            // UM05: admin can deactivate
+  createdAt    DateTime        @default(now())           @map("created_at")
+  updatedAt    DateTime        @updatedAt                @map("updated_at")
+
+  // Relations
+  oauthAccounts  OAuthAccount[]
+  refreshTokens  RefreshToken[]
+  sessions       Session[]
+  workoutPlans   WorkoutPlan[]       // plans created by this user/admin
+
+  @@map("users")
+}
+
+/// Supports Google OAuth (UM01) — extensible to more providers
+model OAuthAccount {
+  id           String        @id @default(uuid())
+  userId       String        @map("user_id")
+  provider     OAuthProvider
+  providerAccountId String   @map("provider_account_id")
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("oauth_accounts")
+}
+
+/// JWT refresh-token store; supports blacklisting via isRevoked (SEC-01)
+model RefreshToken {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  tokenHash  String   @unique @map("token_hash")    // store hash, never plain token
+  isRevoked  Boolean  @default(false)               @map("is_revoked")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now())               @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// =============================================================================
+// POSE LIBRARY & CONTENT MANAGEMENT  (CM01 – CM03, PD-04)
+// =============================================================================
+
+/// Reference pose with correction metadata (CM01, CM02)
+model Pose {
+  id             String     @id @default(uuid())
+  name           String     @unique                  // e.g. "Warrior I"
+  sanskritName   String     @map("sanskrit_name")    // e.g. "Virabhadrasana I"
+  difficulty     Difficulty
+  targetMuscles  String[]   @map("target_muscles")   // e.g. ["quadriceps", "core"]
+  imageUrl       String?    @map("image_url")
+  description    String?
+  /// JSON array of { joint, referenceAngleDeg, toleranceDeg, hintText }
+  correctionTips Json       @map("correction_tips")  @default("[]")
+  isActive       Boolean    @default(true)            @map("is_active")
+  createdAt      DateTime   @default(now())           @map("created_at")
+  updatedAt      DateTime   @updatedAt                @map("updated_at")
+
+  // Relations
+  planPoses          WorkoutPlanPose[]
+  sessionPoseResults SessionPoseResult[]
+
+  @@map("poses")
+}
+
+/// Ordered, multi-pose workout plan (CM03, SM03, SM04)
+model WorkoutPlan {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isPublic    Boolean  @default(false) @map("is_public")
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt      @map("updated_at")
+
+  createdBy   User               @relation(fields: [createdById], references: [id])
+  poses       WorkoutPlanPose[]
+  sessions    Session[]
+
+  @@map("workout_plans")
+}
+
+/// Join table preserving pose order within a plan (CM03)
+model WorkoutPlanPose {
+  id            String      @id @default(uuid())
+  workoutPlanId String      @map("workout_plan_id")
+  poseId        String      @map("pose_id")
+  position      Int                                  // 1-based display order
+  durationSecs  Int?        @map("duration_secs")   // optional hold target
+
+  workoutPlan   WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+  pose          Pose        @relation(fields: [poseId], references: [id])
+
+  @@unique([workoutPlanId, position])
+  @@index([workoutPlanId])
+  @@map("workout_plan_poses")
+}
+
+// =============================================================================
+// SESSION MANAGEMENT  (SM01 – SM04)
+// =============================================================================
+
+/// One yoga practice session per user (SM01, SM02)
+model Session {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  workoutPlanId   String?       @map("workout_plan_id")   // null = free-practice
+  mode            SessionMode   @default(LIVE)
+  status          SessionStatus @default(ACTIVE)
+  startTime       DateTime      @map("start_time")
+  endTime         DateTime?     @map("end_time")
+  totalMinutes    Int?          @map("total_minutes")     // derived on close
+  overallAccuracy Float?        @map("overall_accuracy")  // 0–100 %
+  createdAt       DateTime      @default(now())           @map("created_at")
+  updatedAt       DateTime      @updatedAt                @map("updated_at")
+
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutPlan     WorkoutPlan?      @relation(fields: [workoutPlanId], references: [id])
+  poseResults     SessionPoseResult[]
+
+  @@index([userId])
+  @@index([userId, startTime])
+  @@map("sessions")
+}
+
+/// Per-pose result within a session (SM02, PT-02, PT-03)
+model SessionPoseResult {
+  id           String   @id @default(uuid())
+  sessionId    String   @map("session_id")
+  poseId       String   @map("pose_id")
+  attempts     Int      @default(0)
+  holdSeconds  Int      @default(0)     @map("hold_seconds")
+  accuracyPct  Float    @map("accuracy_pct")              // 0–100
+  /// JSON array of { joint, deltaAngle, hint } — PT-03 heatmap source
+  corrections  Json     @default("[]")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  pose         Pose     @relation(fields: [poseId], references: [id])
+
+  @@index([sessionId])
+  @@index([poseId])
+  @@map("session_pose_results")
+}
+
+// =============================================================================
+// ML MODEL REGISTRY  (MT05, MT07)
+// =============================================================================
+
+/// Immutable record of every trained model artifact
+model ModelVersion {
+  id           String   @id @default(uuid())
+  versionTag   String   @unique @map("version_tag")  // e.g. "v1.2.0"
+  algorithm    String                                 // e.g. "RandomForest", "MLP"
+  accuracy     Float                                  // test-set accuracy 0–1
+  f1Score      Float    @map("f1_score")
+  /// JSON map of { className: recall } for per-class recall audit
+  perClassMetrics Json  @map("per_class_metrics")    @default("{}")
+  artifactPath String   @map("artifact_path")        // s3:// or /models/...
+  isActive     Boolean  @default(false)              @map("is_active")  // one active at a time
+  trainedAt    DateTime @map("trained_at")
+  createdAt    DateTime @default(now())              @map("created_at")
+
+  @@map("model_versions")
+}
+
+// =============================================================================
+// ANALYTICS  (PT-01 – PT-04)
+// =============================================================================
+
+/// Daily aggregated analytics snapshot per user (PT-01, PT-02)
+/// Pre-computed by a background job to keep dashboard queries fast (NFR: ≤ 2 s)
+model UserAnalyticsSnapshot {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  date            DateTime @db.Date                  // one row per user per day
+  sessionsCount   Int      @default(0)   @map("sessions_count")
+  minutesPracticed Int     @default(0)   @map("minutes_practiced")
+  /// JSON map { poseId: avgAccuracy } for line-chart data
+  poseAccuracyMap Json     @map("pose_accuracy_map") @default("{}")
+  /// JSON map { joint: correctionCount } for heatmap (PT-03)
+  jointHeatmap    Json     @map("joint_heatmap")     @default("{}")
+  createdAt       DateTime @default(now())           @map("created_at")
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@map("user_analytics_snapshots")
 }
