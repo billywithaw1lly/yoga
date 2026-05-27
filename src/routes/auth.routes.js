@@ -12,6 +12,7 @@ import { authenticate } from '../middlewares/auth.middleware.js'
 import { verifyOTP }  from "../controllers/auth/verifyOtp.auth.js";
 import { resendOTP }  from "../controllers/auth/resendOtp.auth.js";
 import { sendOTP } from "../controllers/auth/sendOtp.auth.js";
+import { deleteUser } from "../controllers/auth/deleteUser.auth.js"
 
 const router = express.Router();
 
@@ -21,5 +22,7 @@ router.post("/logout",   authenticate, logout);
 router.post("/verify-otp",  verifyOTP);
 router.post("/resend-otp",  resendOTP);
 router.post("/send-otp", sendOTP);
+
+router.delete("/delete-user", authenticate, deleteUser);
 
 export default router
