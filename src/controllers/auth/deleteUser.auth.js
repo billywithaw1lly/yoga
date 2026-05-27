@@ -2,8 +2,6 @@ import { prisma } from "../../db/prisma.db.js"
 
 export const deleteUser = async (req, res) => {
     try {
-        console.log("Cookies:", req.cookies);
-        console.log("Headers:", req.headers);
         const {id} = req.user
 
         const user = await prisma.user.findUnique({ where : {id} })

@@ -61,3 +61,24 @@ export const sendOTPEmail = async (to, name, otp) => {
     `,
   });
 };
+
+export const sendResetOTPEmail = async (to, name, otp) => {
+  await transporter.sendMail({
+    from:    `"Yoga App" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: "Reset your password",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>Password Reset Request 🔐</h2>
+        <p>Hi <b>${name}</b>, use the OTP below to reset your password.</p>
+        <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px;
+                    background: #FEE2E2; padding: 20px; text-align: center;
+                    border-radius: 8px; margin: 24px 0;">
+          ${otp}
+        </div>
+        <p style="color: #6B7280;">This code expires in <b>10 minutes</b>.</p>
+        <p style="color: #6B7280;">If you didn't request this, ignore this email.</p>
+      </div>
+    `,
+  });
+};

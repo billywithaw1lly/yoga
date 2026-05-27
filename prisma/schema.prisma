@@ -81,6 +81,11 @@ model User {
   sessions       Session[]
   workoutPlans   WorkoutPlan[]       // plans created by this user/admin
 
+  resetOtp          String?   @map("reset_otp")
+  resetOtpExpiry    DateTime? @map("reset_otp_expiry")
+  resetToken        String?   @map("reset_token")
+  resetTokenExpiry  DateTime? @map("reset_token_expiry")
+
   @@map("users")
 }
 

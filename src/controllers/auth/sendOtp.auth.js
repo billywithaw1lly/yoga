@@ -20,7 +20,7 @@ export const sendOTP = async (req, res) => {
       return res.status(400).json({ success: false, message: "Email already verified." });
     }
 
-    const otp       = generateOTP();
+    const otp = generateOTP();
     const otpExpiry = generateOTPExpiry();
 
     await prisma.user.update({
